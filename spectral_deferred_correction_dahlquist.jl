@@ -15,7 +15,7 @@ Main
 """
 function main()
     # Function Paramaters
-    λ = 0.5
+    λ = 0.7
     u(t) = exp(λ*t)
     f(t, u) = λ*u
 
@@ -28,9 +28,9 @@ function main()
     end
     validate_collocation_nodes(c_nodes)
 
-    start_t = 0.5
+    start_t = 1.7
     u_n = u(start_t)
-    Δt = 7.0
+    Δt = 2.5
 
 
     times = map(x -> start_t + Δt*x, c_nodes)
@@ -46,14 +46,15 @@ function main()
     # Get exact values for comparison purposes
     u_vec_exact = [u(t) for t in times]
 
-    # Prediction Phase - Standard backward Euler to fill first column
+    # Initialize vectors for approximations we will want to save
     u_vec_1 = Vector{Float64}(undef, length(c_nodes))
     u_vec_2 = Vector{Float64}(undef, length(c_nodes))
     u_vec_p = Vector{Float64}(undef, length(c_nodes))
     u_vec_2p = Vector{Float64}(undef, length(c_nodes))
     u_vec_4p = Vector{Float64}(undef, length(c_nodes))
 
-    u_vec_1[1] = u(start_t)
+    # Prediction Phase - Standard backward Euler to fill first column
+    u_vec_1[1] =backward_euler_step(λ, Δt_0, u_n)
     for i in 1:length(u_vec_1)-1
         u_vec_1[i+1] = backward_euler_step(λ, Δtimes[i], u_vec_1[i])
     end
@@ -61,36 +62,11 @@ function main()
     u_vec_k = u_vec_1[:] # Copy first approximation
     u_vec_kp1 = Vector{Float64}(undef, length(c_nodes))
 
-    # Correction Phase - No animation
-    for i in 1:no_of_corrections
-        make_correction!(u_vec_k, u_vec_kp1, u_n, λ, S, Δt_0, Δtimes, Δt)
-        swap!(u_vec_k, u_vec_kp1)
-        if i == 2
-            u_vec_2 .= u_vec_k[:]
-        elseif i == p
-            u_vec_p .= u_vec_k[:]
-        elseif i == 2*p
-            u_vec_2p .= u_vec_k[:] # Save Copy of 2pth Correction
-        elseif i == 4*p
-            u_vec_4p .= u_vec_k[:]
-        end
-    end
-
-    ## Correction Phase - With animation
-    #animation = Plots.@animate for i in 1:no_of_corrections
+    ## Correction Phase - No animation
+    #for i in 1:no_of_corrections
     #    make_correction!(u_vec_k, u_vec_kp1, u_n, λ, S, Δt_0, Δtimes, Δt)
     #    swap!(u_vec_k, u_vec_kp1)
-
-    #    errors_pred = [abs(u) for u in u_vec_exact - u_vec_1]
-    #    errors_corr = [abs(u) for u in u_vec_exact - u_vec_k]
-    #    plot = Plots.plot(
-    #        errors_pred[2:end],
-    #        label="Prediction",
-    #    )
-    #    Plots.plot!(
-    #        errors_corr[2:end],
-    #        label = "Correction - K = $i"
-    #    )
+    #    # Save a selection of the correction process
     #    if i == 2
     #        u_vec_2 .= u_vec_k[:]
     #    elseif i == p
@@ -101,18 +77,50 @@ function main()
     #        u_vec_4p .= u_vec_k[:]
     #    end
     #end
-    #fps = floor(no_of_corrections/5) # fps needed for a 5 second animation
-    #fps = Int(min(fps, 30)) # Don't exceed 30 fps (to keep easy to interpret, should maybe use lower floor)
-    #Plots.gif(animation, "spectral_deferred_correction_evolution.gif", fps=fps)
+
+    # Correction Phase - With animation
+    animation = Plots.@animate for i in 1:no_of_corrections
+        make_correction!(u_vec_k, u_vec_kp1, u_n, λ, S, Δt_0, Δtimes, Δt)
+        swap!(u_vec_k, u_vec_kp1)
+
+        errors_pred = [abs(u) for u in u_vec_exact - u_vec_1]
+        errors_corr = [abs(u) for u in u_vec_exact - u_vec_k]
+        plot = Plots.plot(
+            errors_pred[2:end],
+            label="Prediction",
+        )
+        Plots.plot!(
+            errors_corr[2:end],
+            label = "Correction - K = $i"
+        )
+        # Save a selection of the correction process
+        if i == 2
+            u_vec_2 .= u_vec_k[:]
+        elseif i == p
+            u_vec_p .= u_vec_k[:]
+        elseif i == 2*p
+            u_vec_2p .= u_vec_k[:]
+        elseif i == 4*p
+            u_vec_4p .= u_vec_k[:]
+        end
+    end
+    fps = floor(no_of_corrections/5) # fps needed for a 5 second animation
+    fps = Int(min(fps, 30)) # Don't exceed 30 fps (to keep easy to interpret, should maybe use lower floor)
+    Plots.gif(animation, "spectral_deferred_correction_evolution.gif", fps=fps)
 
     # At this point, u_vec_1 holds the prediction, and u_vec_k holds the most
     # recent revision. If I want to analyze the evolution of the revisions, I
     # would have to save them during the correction phase.
-    errors_pred = [abs(u) for u in u_vec_exact - u_vec_1]
-    errors_corr_2 = [abs(u) for u in u_vec_exact - u_vec_2]
-    errors_corr_p = [abs(u) for u in u_vec_exact - u_vec_p]
-    errors_corr_2p = [abs(u) for u in u_vec_exact - u_vec_2p]
-    errors_corr_4p = [abs(u) for u in u_vec_exact - u_vec_4p]
+    get_errors(u_vec) = [abs(u) for u in u_vec_exact - u_vec]
+    errors_to_include = [get_errors(u_vec) for u_vec in 
+        (
+         u_vec_1,
+         u_vec_2,
+         u_vec_p,
+         u_vec_2p,
+         u_vec_4p,
+        )
+    ]
 
     ## In case I want to look at the fractional error.
     #frac_errors_pred = [abs((u_est-u_ex)/u_ex) for (u_est, u_ex) in zip(u_vec_1, u_vec_exact)]
@@ -137,71 +145,39 @@ function main()
     #display(sample(errors_corr_2p))
     #println()
     
+    # Plotting
     Δtimes_plot = map(t -> t - start_t, times[2:end])
-    #pushfirst!(Δtimes_plot, Δt_0)
-    errors_to_include = [
-        errors_pred,
-        errors_corr_2,
-        errors_corr_p,
-        errors_corr_2p,
-        #errors_corr_4p,
-    ]
     errors_to_include = map(x -> x[2:end], errors_to_include)
 
     display(Δtimes_plot)
     display(errors_to_include)
 
     plot2 = Plots.plot(
-        Δtimes_plot,
+        #Δtimes_plot,
         errors_to_include,
-        #label=["Prediction", "K=1", "K=p", "K=2p", "K=4p"]
+        label=hcat(
+            "Prediction",
+            "K=2",
+            "K=p",
+            "K=2p",
+            "K=4p",
+        )
     )
 
-    #plot = Plots.plot(
-    #    #Δtimes_plot,
-    #    errors_pred[2:end],
-    #    label="Prediction",
-    #)
-    #Plots.plot!(
-    #    errors_corr_2[2:end],
-    #    label="Corrected Values (K=2)",
-    #)
-    #Plots.plot!(
-    #    errors_corr_p[2:end],
-    #    label="Corrected Values (K=p)",
-    #)
-    #Plots.plot!(
-    #    errors_corr_2p[2:end],
-    #    label="Corrected Values (K=2p)",
-    #)
-    #Plots.plot!(
-    #    errors_corr_4p[2:end],
-    #    label="Corrected Values (K=4p)"
-    #)
-
-    all_errors = append!(
-        [],
-        errors_pred[2:end],
-        errors_corr_2[2:end],
-        errors_corr_p[2:end],
-        errors_corr_2p[2:end],
-        errors_corr_4p[2:end]
+    # Get list of all errors (to set y limits of plot)
+    all_errors = reduce(vcat, errors_to_include)
+    Plots.plot!(
+        plot2,
+        title="Error Correction Analysis - λ=$λ",
+        #xticks=Δtimes_plot,
+        xlabel="# of Steps (Δt = $Δt, t_n = $start_t)",
+        ylabel="Abs(E)",
+        ylim=(minimum(all_errors), maximum(all_errors)),
+        yaxis=:log,
+        marker=:cross,
     )
 
-    #Plots.plot!(
-    #    plot,
-    #    title="Error Analysis - Prediction vs Corrections",
-    #    #xticks=Δtimes_plot,
-    #    xlabel="Δt",
-    #    ylabel="Abs(E)",
-    #    #ylabel="\$\\left|\\frac{u_{est}-u_{ex}}{u_{ex}}\\right|\$",
-    #    ylim=(minimum(all_errors), maximum(all_errors)),
-    #    yaxis=:log,
-    #    marker=:cross,
-    #)
-
-    #savefig(plot, "spectral_deferred_correction_evolution.png")
-    #display(plot2)
+    Plots.savefig(plot2, "spectral_deferred_correction_evolution.png")
     display(plot2)
     return
 end
