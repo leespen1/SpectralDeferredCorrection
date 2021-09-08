@@ -38,7 +38,9 @@ end
 """
 Main
 """
-function main(λ::Float64, Δt::Float64, Δt_n::Float64, c_nodes::Vector{Float64})
+function main(λ::Float64, Δt::Float64, t_n::Float64, c_nodes::Vector{Float64};
+              graph_name::String="spectral_deferred_correction_evolution.png",
+              display_plot::Bool=false)
     u(t) = exp(λ*t)
     f(t, u) = λ*u
 
@@ -68,7 +70,8 @@ function main(λ::Float64, Δt::Float64, Δt_n::Float64, c_nodes::Vector{Float64
     # Compute errors
     u_np1_saves_errors = Vector{Tuple{Int64, Float64}}(undef, length(u_np1_saves))
     for (i, (j, u_np1)) in enumerate(u_np1_saves)
-        u_np1_saves_errors[i] = (j, abs(u_np1-u_exact))
+        #u_np1_saves_errors[i] = (j, abs(u_np1-u_exact))
+        u_np1_saves_errors[i] = (j, u_np1-u_exact)
     end
 
     # Plotting
@@ -78,14 +81,21 @@ function main(λ::Float64, Δt::Float64, Δt_n::Float64, c_nodes::Vector{Float64
         label="Approximation of u(t_n+Δt)"
     )
     Plots.plot!(
-        title="Errors Over 1 Timestep Vs No of Corrections \nλ=$λ, Δt=$Δt, t_n=$t_n, p=$p (Gauss-Lobatto)",
+        plot,
+        title="Error Over 1 Timestep Vs No of Corrections \nλ=$λ, Δt=$Δt, t_n=$t_n, p=$p (Gauss-Lobatto)",
         xlabel="# of Corrections (0 ⟹ Backward Euler Prediction)",
-        ylabel="Abs(E)",
+        ylabel="Error",
+        xlim=(0, 2*p),
         #yaxis=:log,
     )
+    Plots.hline!(plot, [0], label="")
 
-    Plots.savefig(plot, "spectral_deferred_correction_evolution.png")
-    display(plot)
+    Plots.savefig(plot, graph_name)
+
+    if display_plot
+        display(plot)
+    end
+    #display(para)
     return
 end
 
@@ -284,14 +294,30 @@ function correction_phase!(u_vec_k, p::Parameters,
 end
 
 
-λ = -1.0
-Δt = 1.0
-t_n = 0.0
-c_nodes, weights =  FGQ.gausslobatto(7)
+
+c_nodes, weights =  FGQ.gausslobatto(4)
 # Shift from [-1,1] the the standard interval [0,1]
 for (i, node) in enumerate(c_nodes)
     c_nodes[i] = (node+1)/2
 end
+#c_nodes = [0.0, 0.5, 1.0]
 
-main(λ, Δt, t_n, c_nodes)
+#λ = -1.0
+#Δt = 0.1
+#t_n = 5.0
+#main(λ, Δt, t_n, c_nodes, display_plot=true)
+
+dir_name = "FigureSaves"
+if !isdir(dir_name)
+    mkdir(dir_name)
+end
+no_of_runs = 50
+rand_λs = -5*rand(Float64, no_of_runs)
+rand_Δts = 2*rand(Float64, no_of_runs)
+rand_t_ns = 5*rand(Float64, no_of_runs)
+for (i, (λ, Δt, t_n)) in enumerate(zip(rand_λs, rand_Δts, rand_t_ns))
+    myround(x) = round(x, digits=2)
+    λ, Δt, t_n = myround(λ), myround(Δt), myround(t_n)
+    main(λ, Δt, t_n, c_nodes, graph_name="$dir_name/figure$i.png", display_plot=false)
+end
 
