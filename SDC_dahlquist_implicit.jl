@@ -39,7 +39,7 @@ end
 Main
 """
 function main(λ::Float64, Δt::Float64, t_n::Float64, c_nodes::Vector{Float64};
-              graph_name::String="spectral_deferred_correction_evolution.png",
+              graph_name::String="SDC_implicit_evolution.png",
               display_plot::Bool=false)
     u(t) = exp(λ*t)
     f(t, u) = λ*u
@@ -64,6 +64,9 @@ function main(λ::Float64, Δt::Float64, t_n::Float64, c_nodes::Vector{Float64};
     # Correction Phase
     u_np1_saves = correction_phase!(u_vec_k, para, 2*p, saves=1:2*p)
     pushfirst!(u_np1_saves, (0, u_vec_1[end]))
+
+    println("Results:")
+    display(u_np1_saves)
 
     # Get exact values for comparison purposes
     u_exact = u(t_n+Δt)
@@ -295,29 +298,29 @@ end
 
 
 
-c_nodes, weights =  FGQ.gausslobatto(4)
-# Shift from [-1,1] the the standard interval [0,1]
-for (i, node) in enumerate(c_nodes)
-    c_nodes[i] = (node+1)/2
-end
-#c_nodes = [0.0, 0.5, 1.0]
+#c_nodes, weights =  FGQ.gausslobatto(6)
+## Shift from [-1,1] the the standard interval [0,1]
+#for (i, node) in enumerate(c_nodes)
+#    c_nodes[i] = (node+1)/2
+#end
+c_nodes = [0.0, 0.5, 1.0]
 
-#λ = -1.0
-#Δt = 0.1
-#t_n = 5.0
-#main(λ, Δt, t_n, c_nodes, display_plot=true)
+λ = -1.0
+Δt = 1.0
+t_n = 0.0
+main(λ, Δt, t_n, c_nodes, display_plot=true)
 
-dir_name = "FigureSaves"
-if !isdir(dir_name)
-    mkdir(dir_name)
-end
-no_of_runs = 50
-rand_λs = -5*rand(Float64, no_of_runs)
-rand_Δts = 2*rand(Float64, no_of_runs)
-rand_t_ns = 5*rand(Float64, no_of_runs)
-for (i, (λ, Δt, t_n)) in enumerate(zip(rand_λs, rand_Δts, rand_t_ns))
-    myround(x) = round(x, digits=2)
-    λ, Δt, t_n = myround(λ), myround(Δt), myround(t_n)
-    main(λ, Δt, t_n, c_nodes, graph_name="$dir_name/figure$i.png", display_plot=false)
-end
+#dir_name = "FigureSaves"
+#if !isdir(dir_name)
+#    mkdir(dir_name)
+#end
+#no_of_runs = 50
+#rand_λs = -5*rand(Float64, no_of_runs)
+#rand_Δts = 2*rand(Float64, no_of_runs)
+#rand_t_ns = 5*rand(Float64, no_of_runs)
+#for (i, (λ, Δt, t_n)) in enumerate(zip(rand_λs, rand_Δts, rand_t_ns))
+#    myround(x) = round(x, digits=2)
+#    λ, Δt, t_n = myround(λ), myround(Δt), myround(t_n)
+#    main(λ, Δt, t_n, c_nodes, graph_name="$dir_name/figure$i.png", display_plot=false)
+#end
 

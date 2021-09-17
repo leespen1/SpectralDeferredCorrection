@@ -18,7 +18,7 @@ SymPy = PyCall.pyimport("sympy")
 import FastGaussQuadrature as FGQ # So I don't have to calculate Gauss-Legendre nodes myself, although I should be able to
 #import BenchmarkTools
 
-λ=-2.0
+λ=-1.0
 exp_coeff = 0.0
 imp_coeff = 1.0-exp_coeff
 
@@ -321,7 +321,7 @@ end
 
 
 function main()
-    n = 6
+    n = 4
     t_n, Δt = 0.0, 1.0
     u_n = u(t_n)
     c_nodes = gauss_lobatto_nodes(n)
