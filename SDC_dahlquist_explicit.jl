@@ -18,7 +18,7 @@ SymPy = PyCall.pyimport("sympy")
 import FastGaussQuadrature as FGQ # So I don't have to calculate Gauss-Legendre nodes myself, although I should be able to
 #import BenchmarkTools
 
-const λ=-1.0
+λ=-1.0
 
 function u(t::Float64)
     exp(λ*t)
@@ -30,6 +30,7 @@ etc, will refer back to this one)
 """
 function f(t::Float64, u)
     λ*u
+    #λ*exp(λ*t)
 end
 
 
@@ -64,7 +65,7 @@ end
 
 
 function prediction_step(u, dt::Float64)
-    u + dt*f_exp()
+    u + dt*f_exp(u)
 end
 
 
@@ -93,12 +94,12 @@ function Timing(t_n::Float64, Δt::Float64, c_nodes::Vector{Float64})
         Δt,
         c_nodes[1]*Δt,#Δt_0
         map(i -> Δt*(c_nodes[i+1]-c_nodes[i]), 1:length(c_nodes)-1),#Δtimes
-        map(i -> t_n+Δt*c_nodes[i], 1:length(c_nodes)-1),#times
+        map(i -> t_n+Δt*c_nodes[i], 1:length(c_nodes)),#times
     )
 end
 
 
-function perform_timestep(u_n, T::Timing, S::Matrix{Float64})
+function perform_timestep(u_n, T::Timing, S::Matrix{Float64}; get_interstep=false)
     p = no_of_points = length(T.Δtimes)+1
     no_of_corrections = 2*p
 
@@ -112,15 +113,23 @@ function perform_timestep(u_n, T::Timing, S::Matrix{Float64})
     u_vec_k = u_vec_1[:] # Copy first approximation
 
     # Correction Phase
-    u_np1_saves = correction_phase!(u_vec_k, u_n, S, T, 2*p, saves=1:2*p)
+    if get_interstep
+        u_np1_saves, corr_matrix = correction_phase!(u_vec_k, u_n, S, T, 2*p, saves=1:2*p, get_interstep=get_interstep)
+    else
+        u_np1_saves = correction_phase!(u_vec_k, u_n, S, T, 2*p, saves=1:2*p, get_interstep=get_interstep)
+    end
     pushfirst!(u_np1_saves, (0, u_vec_1[end])) # Put prediction at start of saves
 
-    return u_np1_saves
+    if get_interstep
+        return u_np1_saves, corr_matrix
+    else
+        return u_np1_saves
+    end
 end
 
 
 function graph(u_np1_saves, T::Timing;
-              graph_name::String="spectral_deferred_correction_evolution.png",
+              graph_name::String="SDC_explicit_evolution.png",
               display_plot::Bool=false)
 
     # Get exact value for comparison purposes
@@ -221,7 +230,12 @@ end
 
 function correction_phase!(
         u_vec_k, u_n, S::Matrix{Float64}, T::Timing,
-        no_of_corrections::Int64; saves=[])
+        no_of_corrections::Int64; saves=[], get_interstep=false)
+
+    if get_interstep
+        corr_matrix = zeros(Float64, length(u_vec_k), no_of_corrections+1)
+        corr_matrix[:, 1] = u_vec_k[:]
+    end
 
     u_vec_kp1 = u_vec_k[:]
 
@@ -230,15 +244,25 @@ function correction_phase!(
     for i in 1:no_of_corrections
         make_correction!(u_vec_k, u_vec_kp1, u_n,S, T)
         swap!(u_vec_k, u_vec_kp1)
+
+
         # Save a selection of the correction process
         if i in saves
             push!(return_vec, (i, u_vec_k[end]))
+            if get_interstep
+                corr_matrix[:, i+1] = u_vec_k[:] # For debugging
+            end
         end
     end
     if !(no_of_corrections in saves) # At least return the latest correction
         push!(return_vec, (no_of_corrections, u_vec_k[end]))
     end
-    return return_vec
+
+    if get_interstep
+        return  return_vec, corr_matrix
+    else
+        return return_vec
+    end
 end
 
 
@@ -247,9 +271,9 @@ Use equations (B15) and (B16) to make a correction (k → k+1) to the current
 provided set of approximate solutions (u_vec_k).
 """
 function make_correction!(u_vec_k, u_vec_kp1, u_n, S::Matrix{Float64}, T::Timing)
-    eq_b15!(u_vec_k, u_vec_kp1, u_n, T.Δt, S)
+    eq_b15!(u_vec_k, u_vec_kp1, u_n, T.Δt, T.times, S)
     for m in 1:length(u_vec_k)-1
-        eq_b16!(u_vec_k, u_vec_kp1, T.Δt, T.Δtimes, S, m)
+        eq_b16!(u_vec_k, u_vec_kp1, T.Δt, T.times, T.Δtimes, S, m)
     end
 end
 
@@ -258,10 +282,10 @@ end
 """
 Implementation of equation (B15)
 """
-function eq_b15!(u_vec_k, u_vec_kp1, u_n, Δt::Float64, S::Matrix{Float64})
+function eq_b15!(u_vec_k, u_vec_kp1, u_n, Δt::Float64, times, S::Matrix{Float64})
     u_vec_kp1[1] = begin
-        summand(q) = S[1,q]*f_exp(u_vec_k[q])
-        u_n + Δt*sum(summand,1:length(u_vec_k))
+        summand(q) = S[1,q]*f(times[q], u_vec_k[q])
+        u_n + Δt*sum(summand,1:size(S)[2]) # sum over first row of S
     end
 end
 
@@ -269,12 +293,12 @@ end
 """
 Implementation of equation (B16)
 """
-function eq_b16!(u_vec_k, u_vec_kp1, Δt::Float64, Δtimes::Vector{Float64},
+function eq_b16!(u_vec_k, u_vec_kp1, Δt::Float64, times, Δtimes::Vector{Float64},
                  S::Matrix{Float64}, m::Int64)
     u_vec_kp1[m+1] = begin
-        summand(q) = (S[m+1,q]-S[m,q])*f(u_vec_k[q])
-        term1 = u_vec_kp1[m] + Δtimes[m]*(Δf_exp(u_vec_kp1[m], u_vec_k[m]))
-        term1 + Δt*sum(summand, 1:length(u_vec_k))
+        summand(q) = (S[m+1,q]-S[m,q])*f(times[q], u_vec_k[q])
+        term1 = u_vec_kp1[m] + Δtimes[m]*(Δf_exp(times[m], u_vec_kp1[m], u_vec_k[m]))
+        term1 + Δt*sum(summand, 1:size(S)[2])
     end
 end
 
@@ -283,25 +307,50 @@ function main()
     n = 6
     t_n, Δt = 0.0, 1.0
     u_n = u(t_n)
-    c_nodes = gauss_lobatto_nodes(n)
+    #c_nodes = gauss_lobatto_nodes(n)
+    c_nodes = [0.0, 0.5, 1.0]
     T = Timing(t_n, Δt, c_nodes)
     S = spectral_integration_matrix(c_nodes)
-    u_np1_saves = perform_timestep(u_n, T, S)
+
+    #println("Collocation Nodes:")
+    #display(c_nodes)
+    println("Spectral Integration Matrix")
+    display(S)
+
+    #println("Timing Struct:")
+    #display(T)
+
+    u_np1_saves = perform_timestep(u_n, T, S, get_interstep=false)
+    u_np1_saves, corr_matrix = perform_timestep(u_n, T, S, get_interstep=true)
+    true_values = [u(t) for (i, t) in enumerate(T.times)]
+    err_matrix = corr_matrix[:, :]
+    for i in 1:size(err_matrix)[2]
+        err_matrix[:, i] = corr_matrix[:, i] - true_values
+    end
+
+    println("\nInternode Approximations")
+    display(corr_matrix)
+    println("\nInternode Errors")
+    display(err_matrix)
+
+    #println("Results:")
+    #display(u_np1_saves)
+
     graph(u_np1_saves, T, display_plot=true)
-    #c_nodes = [0.0, 0.5, 1.0]
-    #dir_name = "FigureSaves"
-    #if !isdir(dir_name)
-    #    mkdir(dir_name)
-    #end
-    #no_of_runs = 50
-    #rand_λs = -5*rand(Float64, no_of_runs)
-    #rand_Δts = 2*rand(Float64, no_of_runs)
-    #rand_t_ns = 5*rand(Float64, no_of_runs)
-    #for (i, (λ, Δt, t_n)) in enumerate(zip(rand_λs, rand_Δts, rand_t_ns))
-    #    myround(x) = round(x, digits=2)
-    #    λ, Δt, t_n = myround(λ), myround(Δt), myround(t_n)
-    #    main(λ, Δt, t_n, c_nodes, graph_name="$dir_name/figure$i.png", display_plot=false)
-    #end
 end
+#c_nodes = [0.0, 0.5, 1.0]
+#dir_name = "FigureSaves"
+#if !isdir(dir_name)
+#    mkdir(dir_name)
+#end
+#no_of_runs = 50
+#rand_λs = -5*rand(Float64, no_of_runs)
+#rand_Δts = 2*rand(Float64, no_of_runs)
+#rand_t_ns = 5*rand(Float64, no_of_runs)
+#for (i, (λ, Δt, t_n)) in enumerate(zip(rand_λs, rand_Δts, rand_t_ns))
+#    myround(x) = round(x, digits=2)
+#    λ, Δt, t_n = myround(λ), myround(Δt), myround(t_n)
+#    main(λ, Δt, t_n, c_nodes, graph_name="$dir_name/figure$i.png", display_plot=false)
+#end
 
 main()
