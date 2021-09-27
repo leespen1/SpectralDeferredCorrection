@@ -1,17 +1,4 @@
-"""
-What I want to do:
-
-Step 1: Implement SDC using explicit methods, rather than implicit
-- Try to do it in a clear and clean way
-- Reuse data when possible
-
-Step 2: Implement room for implicit methods later on
-
-Step 3: Implement implicit
-
-
-"""
-
+using Polynomials, Plots, LinearAlgebra, FastGaussQuadrature,InvertedIndices
 import PyCall
 import Plots
 SymPy = PyCall.pyimport("sympy")
@@ -93,7 +80,7 @@ function Timing(t_n::Float64, Δt::Float64, c_nodes::Vector{Float64})
 end
 
 
-function perform_timestep(u_n, T::Timing, S::Matrix{Float64}; get_interstep=false)
+function perform_timestep(u_n, T::Timing, S::Matrix{Float64})
     p = no_of_points = length(T.Δtimes)+1
     no_of_corrections = 2*p
 
@@ -107,23 +94,15 @@ function perform_timestep(u_n, T::Timing, S::Matrix{Float64}; get_interstep=fals
     u_vec_k = u_vec_1[:] # Copy first approximation
 
     # Correction Phase
-    if get_interstep
-        u_np1_saves, corr_matrix = correction_phase!(u_vec_k, u_n, S, T, 2*p, saves=1:2*p, get_interstep=get_interstep)
-    else
-        u_np1_saves = correction_phase!(u_vec_k, u_n, S, T, 2*p, saves=1:2*p, get_interstep=get_interstep)
-    end
+    u_np1_saves = correction_phase!(u_vec_k, u_n, S, T, 2*p, saves=1:2*p)
     pushfirst!(u_np1_saves, (0, u_vec_1[end])) # Put prediction at start of saves
 
-    if get_interstep
-        return u_np1_saves, corr_matrix
-    else
-        return u_np1_saves
-    end
+    return u_np1_saves
 end
 
 
 function graph(u_np1_saves, T::Timing;
-              graph_name::String="SDC_explicit_evolution.png",
+              graph_name::String="SDC_evolution.png",
               display_plot::Bool=false)
 
     # Get exact value for comparison purposes
@@ -161,16 +140,14 @@ function graph(u_np1_saves, T::Timing;
     return nothing
 end
 
-
 """
 Returns the spectral integration matrix for the given array of collocation nodes
 """
 function spectral_integration_matrix(c_nodes)::Array{Float64}
     mat_size = length(c_nodes)
     x = SymPy.Symbol("x")
-    integrated_funcs = [SymPy.integrate(legrange_func(c_nodes, q), (x, 0, 1))
-                        for q=1:mat_size]
-    return [c_nodes[m]*integrated_funcs[q] for m=1:mat_size, q=1:mat_size]
+    integrated_func(m, q) = SymPy.integrate(legrange_func(c_nodes, q), (x, 0, c_nodes[m]))
+    return [integrated_func(m, q) for m=1:mat_size, q=1:mat_size]
 end
 
 
@@ -222,14 +199,8 @@ function swap!(a_vec, b_vec)
 end
 
 
-function correction_phase!(
-        u_vec_k, u_n, S::Matrix{Float64}, T::Timing,
-        no_of_corrections::Int64; saves=[], get_interstep=false)
-
-    if get_interstep
-        corr_matrix = zeros(Float64, length(u_vec_k), no_of_corrections+1)
-        corr_matrix[:, 1] = u_vec_k[:]
-    end
+function correction_phase!(u_vec_k, u_n, S::Matrix{Float64}, T::Timing,
+        no_of_corrections::Int64; saves=[])
 
     u_vec_kp1 = u_vec_k[:]
 
@@ -238,25 +209,16 @@ function correction_phase!(
     for i in 1:no_of_corrections
         make_correction!(u_vec_k, u_vec_kp1, u_n,S, T)
         swap!(u_vec_k, u_vec_kp1)
-
-
         # Save a selection of the correction process
         if i in saves
             push!(return_vec, (i, u_vec_k[end]))
-            if get_interstep
-                corr_matrix[:, i+1] = u_vec_k[:] # For debugging
-            end
         end
     end
     if !(no_of_corrections in saves) # At least return the latest correction
         push!(return_vec, (no_of_corrections, u_vec_k[end]))
     end
 
-    if get_interstep
-        return  return_vec, corr_matrix
-    else
-        return return_vec
-    end
+    return return_vec
 end
 
 
@@ -319,40 +281,32 @@ function eq_b16!(u_vec_k, u_vec_kp1, T::Timing, S::Matrix{Float64}, m::Int64)
     end
 end
 
+function computeS(n::Int)
+    nodes, weights = gausslobatto(n);
+    nodes = 0.5*(nodes .+ 1.0)
+
+    S = zeros(n,n)
+
+    for j = 1:n
+        Lt = fromroots(nodes[Not(j)])
+        Li = (1.0/Lt(nodes[j]))*Lt
+        for i = 1:n
+            S[i,j] = integrate(Li,0.0,nodes[i])
+        end
+    end
+    return S
+end
 
 function main()
     n = 4
     t_n, Δt = 0.0, 1.0
     u_n = u(t_n)
     c_nodes = gauss_lobatto_nodes(n)
-    #c_nodes = [0.0, 0.5, 1.0]
     T = Timing(t_n, Δt, c_nodes)
-    S = spectral_integration_matrix(c_nodes)
+    #S = spectral_integration_matrix(c_nodes)
+    S = computeS(n)
 
-    #println("Collocation Nodes:")
-    #display(c_nodes)
-    println("Spectral Integration Matrix")
-    display(S)
-
-    #println("Timing Struct:")
-    #display(T)
-
-    u_np1_saves = perform_timestep(u_n, T, S, get_interstep=false)
-    u_np1_saves, corr_matrix = perform_timestep(u_n, T, S, get_interstep=true)
-    true_values = [u(t) for (i, t) in enumerate(T.times)]
-    err_matrix = corr_matrix[:, :]
-    for i in 1:size(err_matrix)[2]
-        err_matrix[:, i] = corr_matrix[:, i] - true_values
-    end
-
-    println("\nInternode Approximations")
-    display(corr_matrix)
-    println("\nInternode Errors")
-    display(err_matrix)
-
-    #println("Results:")
-    #display(u_np1_saves)
-
+    u_np1_saves = perform_timestep(u_n, T, S)
     graph(u_np1_saves, T, display_plot=true)
 end
 #c_nodes = [0.0, 0.5, 1.0]
