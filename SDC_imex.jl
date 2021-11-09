@@ -246,7 +246,7 @@ function main()
     u_actual = []
     u_approx = []
     u_n = u(t)
-    for i in 1:length(Δtimes)
+    for i in eachindex(Δtimes)
         t += Δtimes[i] 
         u_n = my_SDC(u_n, t, Δtimes[i])
         push!(u_actual, u(t))
