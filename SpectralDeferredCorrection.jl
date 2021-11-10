@@ -1,8 +1,8 @@
-using Polynomials, Plots, LinearAlgebra, FastGaussQuadrature,InvertedIndices
-import PyCall
-import Plots
-SymPy = PyCall.pyimport("sympy")
-import FastGaussQuadrature as FGQ
+module SpectralDeferredCorrection
+export SDC, make_SDC, make_spectral_int_matrix, gauss_lobatto_nodes
+
+#using Polynomials, Plots, LinearAlgebra, FastGaussQuadrature,InvertedIndices
+import FastGaussQuadrature
 #import BenchmarkTools
 
 #"""
@@ -18,7 +18,7 @@ import FastGaussQuadrature as FGQ
 Get n Gauss-Lobatto quadrature nodes, on interval [0-1].
 """
 function gauss_lobatto_nodes(n::Int)
-    nodes, weights =  FGQ.gausslobatto(n)
+    nodes, weights =  FastGaussQuadrature.gausslobatto(n)
     return 0.5*(nodes .+ 1.0)
 end
 
@@ -223,40 +223,6 @@ end
 #    end
 #end
 
-"""
-Currently a demonstration of SDC solving
-"""
-function main()
 
-    # 5-node quadrature
-    n = 5
-    # IMEX Euler, half explicit, half implicit (dalhquist equation)
-    fE(t, u) = 0.5*u
-    fI(t, u) = 0.5*u
-    # Solve implicit euler analytically
-    implicit_solver(α, t, b) = b/(1+α)
-
-    my_SDC = make_SDC(n, fE, fI, implicit_solver)
-
-    u(t) = exp(t)
-    t = 0.0
-    Δtimes = [1.0, 0.5, 1.5, 1.1414, 0.7071]
-    times = cumsum(Δtimes) .+ t
-
-    u_actual = []
-    u_approx = []
-    u_n = u(t)
-    for i in eachindex(Δtimes)
-        t += Δtimes[i] 
-        u_n = my_SDC(u_n, t, Δtimes[i])
-        push!(u_actual, u(t))
-        push!(u_approx, u_n)
-    end
-
-    u_diff = abs.(u_actual - u_approx)
-    display(u_diff)
-
-    Plots.plot(times, u_diff, yaxis=:log, display_plot=true)
 end
 
-main()
